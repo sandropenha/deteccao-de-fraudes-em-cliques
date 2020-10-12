@@ -1,0 +1,339 @@
+---
+title: "Detecção de fraudes em cliques de propagandas mobile"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+![](/projetos/projetos_concluidos/deteccao_de_fraudes_no_trafego_de_cliques/talkingdata.png) 
+
+```{r, echo = FALSE, include=FALSE}
+setwd("E:/projetos/projetos_concluidos/deteccao_de_fraudes_no_trafego_de_cliques/")
+```
+
+### **Sobre:**
+O risco de fraude está em toda parte, mas para as empresas que anunciam online, a fraude de cliques pode acontecer em um volume avassalador, resultando em dados de cliques enganosos e dinheiro desperdiçado. Os canais de anúncios podem aumentar os custos simplesmente quando pessoas ou bots clicam nos anúncios em grande escala, o que na prática não gera o resultado esperado. Com mais de 1 bilhão de dispositivos móveis em uso todos os meses, a China é o maior mercado móvel do mundo e, portanto, sofre com grandes volumes de tráfego fraudulento.
+
+A TalkingData, a maior plataforma de Big Data independente da China, cobre mais de 70% dos dispositivos móveis ativos em todo o país lidam com 3 bilhões de cliques por dia, dos quais 90% são potencialmente fraudulentos. Sua abordagem atual para impedir fraudes de cliques para desenvolvedores de aplicativos é medir a jornada do clique de um usuário em todo o portfólio e sinalizar endereços IP que produzem muitos cliques, mas nunca acabam instalando aplicativos. Com essas informações, eles criaram uma lista negra de IPs e uma lista negra de dispositivos.
+
+O objetivo aqui é criar um algoritmo que possa prever se um usuário fará o download de um aplicativo depois de clicar em um anúncio de aplicativo para dispositivos móveis.
+
+
+
+
+### **Dataset:**
+
+O dataset aqui utilizado faz parte de uma das competições do ***kaggle*** e está disponível para download através do link: https://www.kaggle.com/c/talkingdata-adtracking-fraud-detection/data
+
+##### **Dicionário de dados:**
+
+- **ip:** Endereço ip do click.
+- **app:** ID do app utilizado no momento do click.
+- **device:** ID do tipo de modelo que o usuário está utilizando (ex: iphone 6, iphone 7, etc.).
+- **os:** ID da versão do sistema operacional que o usuário está utilizando no momento do clique.
+- **channel:** ID do canal mobile do anúncio exibido.
+- **click_time:** data e horário do click efetuado pelo usuário (UTC).
+- **attributed_time:** Horário do download, caso o usuário tenha o efetuado.
+- **is_attributed:** Variável target. Indica se o app foi baixado ou nao. Sendo: 0 = nao, 1 = sim.
+
+**Observação:** ip, app, device, os e channel possuem encoding.
+
+### **Projeto:**
+
+Utilização da ***Linguagem R***, ***Rstúdio*** e algoritmos de ***Machine Learning*** de metódos de classificação.
+
+#### **Carregamento dos pacotes:**
+Efetua o carregamento dos pacotes que serão utilizados no projeto e os armazena na memória do Rstúdio.
+
+```{r}
+pacman::p_load(tidyverse, caTools, corrplot, caret, 
+               data.table,knitr, gridExtra,gmodels, 
+               class,e1071,ROCR,DMwR,fasttime,lubridate,randomForest,pROC,C50,fastAdaboost)
+```
+
+
+
+#### **Carregamento do Dataset:**
+
+Carrega o dataset na memória do ***Rstudio*** e transforma para o tipo ***tibble***.
+```{r}
+df <- as_tibble(fread("train.csv"))
+glimpse(df)
+```
+
+```{r}
+kable(head(df))
+```
+
+O dataset possui variáveis numéricas e categóricas. Será realizado em seguida, o processo de ***data wrangling*** para ajuste das variáveis.
+
+### **Análise Exploratória - Dados amostrais:**
+
+Realização de coleta aleatória de dados amostrais de uma massa de dados de ***10%*** do dataset original.
+
+Neste processo, também será realizado os ajustes e criação das variáveis temporais.
+
+```{r}
+df <- df %>% 
+  sample_frac(0.10) %>%  # Coleta amostra aleatória de 10% dos dados.
+  mutate(click_time = fastPOSIXct(click_time),
+         hora_click = hour(click_time),
+         dia_click = weekdays(click_time),
+         is_attributed = factor(is_attributed, levels = c("0","1"), labels = c("no","yes")),
+         attributed_time = ifelse(attributed_time == "",NA,attributed_time),
+         attributed_time = fastPOSIXct(attributed_time),
+         hora_attributed = hour(attributed_time),
+         dia_attributed = weekdays(attributed_time)) %>% 
+  select(ip,app,device,os,channel,click_time,hora_click,dia_click,
+         attributed_time,hora_attributed,dia_attributed,is_attributed)
+```
+
+#### **Downloads por ip, app, device e os:**
+
+```{r}
+p1 <- df %>% filter(is_attributed == "yes") %>% group_by(os) %>% summarize(n = n()) %>% arrange(desc(n)) %>% 
+  head() %>%
+  ggplot(aes(x=reorder(os,n),y=n))+
+  geom_col(fill = "steelblue")+theme_minimal()+labs(x="OS",y="Count",title="Top downloads por OS")+
+  geom_text(aes(label = round(n / sum(n), 2)), vjust = 1.6, color = "white", size=3.5)
+
+p2 <- df %>% filter(is_attributed == "yes") %>% group_by(ip) %>% summarize(n = n()) %>% arrange(desc(n)) %>% 
+  head() %>% 
+  ggplot(aes(x=reorder(ip,n),y=n))+
+  geom_col(fill = "steelblue")+theme_minimal()+labs(x="IP",y="Count",title="Top downloads por IP")+
+  geom_text(aes(label=round(n/sum(n),2)),vjust=1.6,color="white",size = 3.5)
+
+p3 <- df %>% filter(is_attributed == "yes") %>% group_by(app) %>% summarize(n = n()) %>% arrange(desc(n)) %>% 
+  head() %>% 
+  ggplot(aes(x=reorder(app,n),y=n))+
+  geom_col(fill = "steelblue")+theme_minimal()+labs(x="APP",y="Count",title="Top downloads por APP")+
+  geom_text(aes(label=round(n/sum(n),2)),vjust=1.6,color="white",size = 3.5)
+
+p4 <- df %>% filter(is_attributed == "yes") %>% group_by(device) %>% summarize(n = n()) %>% arrange(desc(n)) %>% 
+  head() %>% 
+  ggplot(aes(x=reorder(device,n),y=n))+
+  geom_col(fill="steelblue")+theme_minimal()+labs(x="Device",y="Count",title="Top downloads por Device")+
+  geom_text(aes(label=round(n/sum(n),2)),vjust=1.6,color="white",size=3.5)
+
+gridExtra::grid.arrange(p1,p2,p3,p4,ncol=2,nrow=2)
+
+```
+
+- **30%** dos downloads são efetuados por usuários que possuem aparelhos com sistema operacional da classe **19**.
+
+- Os **4 maiores** downloads por classe de sistema operacional correspondem a **85%** do total de downloads efetuados.
+
+- **74%** dos downloads efetuados são de aparelhos da classe **1**.
+
+- Os **2 maiores** downloads por classe de aparelho correspondem a **98%** do total de downloads.
+
+#### **Downloads e clicks por dia:**
+```{r}
+options(scipen = 999)
+
+p5 <- df %>% filter(is_attributed == "yes") %>% group_by(dia_attributed) %>%
+  summarize(n=n()) %>% arrange(desc(n)) %>% 
+  ggplot(aes(x=reorder(dia_attributed,n),y=n))+
+  geom_col(fill="steelblue")+theme_minimal()+labs(x="Dia",y="Count",title="Taxa de downloads por dia da semana")+
+  geom_text(aes(label=round(n/sum(n),2)),vjust=1.6,color="white",size=3.5)
+
+p6 <- df %>% filter(is_attributed == "no") %>% group_by(dia_click) %>% summarize(n=n()) %>% arrange(desc(n)) %>% 
+  ggplot(aes(x=reorder(dia_click,n),y=n))+
+  geom_col(fill="steelblue")+theme_minimal()+labs(x="Dia",y="Count",title="Taxa de clicks por dia da semana")+
+  geom_text(aes(label=round(n/sum(n),2)),vjust=1.6,color="white",size=3.5)
+
+gridExtra::grid.arrange(p5,p6,nrow=2)
+
+```
+
+- Os downloads quando efetuados pelos usuários, seguem o **mesmo padrão** de dias. Ou seja, quando o usuário clica na aplicação, o download geralmente é realizado no mesmo dia;
+
+- **Segunda-feira** é o pior dia quando se fala em taxa de cliques ou downloads.
+
+#### **Downloads e clicks por hora:**
+```{r}
+p7 <- df %>% filter(is_attributed == "no")  %>% group_by(hora_click) %>% 
+  summarize(n=n()) %>% arrange(desc(n)) %>% 
+  ggplot(aes(x=hora_click,y=n))+
+  geom_col(fill="steelblue")+theme_minimal()+labs(x="hora",y="Count", title="Clicks por hora")
+
+p8 <- df %>% filter(is_attributed == "yes") %>%
+  group_by(hora_attributed) %>% 
+  summarize(n=n()) %>% arrange(desc(n)) %>% 
+  ggplot(aes(x=hora_attributed,y=n))+
+  geom_col(fill="steelblue")+theme_minimal()+labs(x="hora",y="Count",title="Download por hora")
+
+gridExtra::grid.arrange(p7,p8,nrow=2)
+```
+
+- Embora existam algumas variações entre o horário de click e de download (especialmente entre a faixa de 0 a 4 horas), pode-se dizer que as amostras possuem o **mesmo padrão** comportamental. Ou seja, assim como é se analisarmos a taxa de cliques x downloads por dia, quando olhamos por hora/dia, não existem variações determinantes nos dados. O usuário quando efetua o download, geralmente o realiza na mesma faixa de horário em que realizou o clique no anúncio.
+
+
+### **Model Preditivo:**
+
+Construção de modelos de aprendizagem de máquina de classificação para a variável ***is_attributed*** (variável que indica se o download foi ou não realizado após o clique no anúncio).
+
+#### **Carregando população dos dados:**
+
+Faz a remoção dos objetos carregados anteriormente na memória do Rstudio.
+
+```{r}
+rm(list = ls(all.names = TRUE));gc()
+pacman::p_load(tidyverse, caTools, corrplot, caret, data.table,knitr, gridExtra,gmodels, 
+               class,e1071,ROCR,DMwR,fasttime,lubridate,xgboost)
+
+df <- as_tibble(fread("train.csv"))
+```
+
+#### **Balanceamento de classe:**
+```{r}
+table(df$is_attributed)
+```
+
+```{r}
+df2 <- df %>% dplyr::filter(is_attributed == 1) %>% sample_n(456846);df2
+df <-  df %>% dplyr::filter(is_attributed == 0) %>% sample_n(456846);df
+df <- rbind(df,df2)
+rm(df2)
+```
+
+Como há grande variação nos dados quando olhamos a taxa de cliques x taxa de downloads realizados, se faz necessário utilizar uma técnica de balanceamento de classes.
+
+Isso evita que o modelo se torne pouco genérico ou venha a ter problemas de instabilidade.
+
+#### **Ajuste dos dados:**
+
+Pré-processamento dos dados para inicialização da construção do modelo preditivo.
+
+```{r}
+df <- df %>% 
+  mutate(click_time = fastPOSIXct(click_time),
+         hora_click = hour(click_time),
+         dia_click = day(click_time),
+         is_attributed = factor(is_attributed, levels = c("0","1"), labels = c("no","yes"))) %>%
+  dplyr::select(ip,app,device,os,channel,hora_click,dia_click,is_attributed)
+## Salva os dados ajustados
+write.csv(df, "dados_ajustados.csv")
+```
+
+#### **Dados de treino e de teste:**
+
+Sample de **70%** para dados de treino e **30%** para dados de teste.
+
+```{r}
+treino <- df %>% sample_frac(0.7);treino
+teste <- df %>% sample_frac(0.3);teste
+```
+
+#### **Check de balanceamento de classes - treino e teste:**
+```{r}
+prop.table(table(treino$is_attributed))
+prop.table(table(teste$is_attributed))
+```
+
+Dados balanceados.
+
+#### **Modelo 1 - Naive Bayes:**
+```{r}
+set.seed(123)
+naive1 <- naiveBayes(x=treino[-8],y=treino$is_attributed)
+previsao_naive <- predict(naive1,teste[-8])
+conf.matrix <- table(data =previsao_naive,reference = teste$is_attributed)
+confusionMatrix(conf.matrix)
+```
+- **0.747** de acurácia;
+- **54740** de falsos positivos;
+- **14411** de falsos negativos.
+
+#### **Modelo 2 - Regressão Logística:**
+```{r, warnings = FALSE}
+set.seed(123)
+controle <- trainControl(method = "repeatedcv",number = 10,repeats = 2)
+regr1 <- train(is_attributed~.,data=treino,method="glm",trControl=controle)
+importance <- varImp(regr1,scale=FALSE);plot(importance)
+
+previsoes_reg <- predict(regr1,teste[-8])
+conf.matrix <- table(data = previsoes_reg, reference = teste$is_attributed)
+confusionMatrix(conf.matrix)
+```
+- **0.773** de acurácia;
+- **35356** de falsos positivos;
+- **26638** de falsos negativos.
+
+
+#### **Modelo 3 - Regressão Logística com seleção de variáveis:**
+```{r, warnings = FALSE}
+treino2 <- treino %>% select(-device,-os)
+teste2 <- teste %>% select(-device,-os)
+
+controle <- trainControl(method = "repeatedcv",number = 10,repeats = 2)
+regr2 <- train(is_attributed~.,data=treino2,method="glm",trControl=controle)
+
+previsoes_reg2 <- predict(regr2,teste2[-6])
+conf.matrix <- table(data = previsoes_reg2,reference = teste2$is_attributed)
+confusionMatrix(conf.matrix)
+```
+- **0.774** de acurácia;
+- **35265** de falsos positivos;
+- **26673** de falsos negativos;
+
+
+#### **Modelo 4 - XGBoost:**
+```{r}
+set.seed(123)
+treino3 <- treino %>% mutate(is_attributed = factor(is_attributed, levels = c("no","yes"), labels = c("0","1")))
+teste3 <- teste %>% mutate(is_attributed = factor(is_attributed, levels = c("no","yes"), labels = c("0","1")))
+
+model_xgboost <- xgboost(
+  data      = as.matrix(treino3 %>% select(-is_attributed)),
+  label     = as.matrix(treino3$is_attributed),
+  max.depth = 20,                            
+  eta       = 1,                             
+  nthread   = 4,                             
+  nrounds   = 100,                           
+  objective = "binary:logistic",             
+  verbose   = F                              
+)
+
+previsoes <- predict(model_xgboost,as.matrix(teste3 %>% select(-is_attributed)));length(previsoes);head(previsoes)
+previsoes <- as.numeric(previsoes>0.5);head(previsoes)
+
+erros <- mean(previsoes!=teste3$is_attributed)
+print(erros)
+
+confusionMatrix(table(data = previsoes, reference = teste3$is_attributed))
+```
+- **0.971** de acurácia;
+- **4710** de falsos positivos;
+- **3058** de falsos negativos.
+
+O modelo 4 com XGBoost foi de longe o que apresentou melhor desempenho, com 97% de acurácia e com baixissímo número de falsos postivos e falsos negativos.
+
+#### **Previsão com dados novos no modelo escolhido**:
+
+Carregamento de um novo dataset para realização da previsão utilizando o modelo cujo teve a melhor performance.
+
+```{r}
+df <- as_tibble(fread("test.csv"));glimpse(df)
+```
+```{r}
+df <- df %>% 
+  mutate(click_time = fastPOSIXct(click_time),
+         hora_click = hour(click_time),
+         dia_click = day(click_time)) %>% 
+  dplyr::select(ip,app,device,os,channel,hora_click,dia_click);glimpse(df)
+```
+
+```{r}
+
+previsoes <- predict(model_xgboost,as.matrix(df));length(previsoes)
+previsoes <- as.numeric(previsoes>0.5)
+
+```
+
+
+Fim!
+
+
+sandropenha.com

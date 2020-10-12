@@ -1,0 +1,239 @@
+---
+title: "Detecção de Fraudes no Tráfego de Cliques em Propagandas de Aplicações Mobile "
+output: html_document
+---
+
+
+#### INTRODUÇÃO:
+O risco de fraude está em toda parte, mas para as empresas que anunciam online, a fraude de cliques pode acontecer em um volume avassalador, resultando em dados de cliques enganosos e dinheiro desperdiçado. Os canais de anúncios podem aumentar os custos simplesmente quando pessoas ou bots clicam nos anúncios em grande escala, o que na prática não gera o resultado esperado. Com mais de 1 bilhão de dispositivos móveis em uso todos os meses, a China é o maior mercado móvel do mundo e, portanto, sofre com grandes volumes de tráfego fraudulento. 
+ 
+A TalkingData (https://www.talkingdata.com), a maior plataforma de Big Data independente da China, cobre mais de 70% dos dispositivos móveis ativos em todo o país. Eles lidam com 3 bilhões de cliques por dia, dos quais 90% são potencialmente fraudulentos. Sua abordagem atual para impedir fraudes de cliques para desenvolvedores de aplicativos é medir a jornada do clique de um usuário em todo o portfólio e sinalizar endereços IP que produzem muitos cliques, mas nunca acabam instalando aplicativos. Com essas informações, eles criaram uma lista negra de IPs e uma lista negra de dispositivos. 
+ 
+Embora bem-sucedidos, eles querem estar sempre um passo à frente dos fraudadores e pediram a sua ajuda para desenvolver ainda mais a solução. Você está desafiado a criar um algoritmo que possa prever se um usuário fará o download de um aplicativo depois de clicar em um anúncio de aplicativo para dispositivos móveis.
+
+#### PROBLEMA DE NEGÓCIO:
+Construir um modelo de machine learning cujo preveja se um clique é fraudulento ou nao.
+
+#### SOBRE O DATASET:
+O dataset utilizado aqui, faz parte de uma das competições presentes no kaggle: https://www.kaggle.com/c/talkingdata-adtracking-fraud-detection/data
+
+#### DICIONÁRIO DE DADOS:
+- **ip:** endereço IP de clique
+- **app:** ID do aplicativo
+- **device:** ID do tipo de celular do usuário
+- **os:** ID da versão do celular 
+- **channel:** ID do canal do editor de anúncios
+- **click_time:** data e hora do clique
+- **attribute_time:** horario de dowload do app caso o usuario o tenha baixado depois de clicar no anuncio.
+- **is_attributed:** 1 se o aplicativo foi baixado e 0 se nao foi baixado.
+
+
+#### DIRETÓRIO DE TRABALHO:
+
+```{r dir}
+setwd("E:/projetos/concluidos/deteccao_de_fraudes_no_trafego_de_cliques")
+```
+
+#### LIBRARYS:
+
+```{r librarys}
+pacman::p_load(tidyverse, caTools, corrplot, caret, data.table,knitr, gridExtra,gmodels, class,e1071,ROCR)
+```
+
+#### CARREGANDO DATASETS:
+```{r carregando_datasets}
+list.files()
+df <- fread("train.csv");dim(df);table(df$is_attributed)
+```
+
+Para mantermos o balanceamento da nossa amostra, vamos subsetar outro dataset com 137k de observacoes
+considerando is_attibruted == 0. Em seguida vamos pré-visualizar nossos dados.
+
+```{r df2}
+df2 <- df %>% 
+  filter(is_attributed == 1) %>% 
+  sample_frac(0.3);dim(df2)
+df <- df %>% filter(is_attributed == 0);dim(df)
+df <- df[1:137054,];dim(df)
+df <- rbind(df,df2);kable(head(df));kable(tail(df));glimpse(df)
+```
+
+
+#### PRÉ-PROCESSAMENTO:
+
+Verificando se há valores NA no dataset:
+
+``` {r preprocessamento}
+colSums(is.na(df))
+```
+
+Dropando colunas que nao iremos utilizar, e criando novas variáveis.
+
+```{r preprocessamento2}
+df <- df %>% 
+  mutate_if(is.integer,as.factor) %>% 
+  select(c(-attributed_time)) %>% 
+  mutate_if(is.character,as.POSIXct) %>% 
+  mutate(hora_click = as.factor(hour(click_time)),
+         dia_click = as.factor(weekdays(click_time))) %>% 
+  select(c(-click_time));kable(head(df));glimpse(df)
+
+```
+
+
+#### ANÁLISE EXPLORATÓRIA:
+
+```{r analise exp}
+df3 <- df2 %>% 
+  mutate_if(is.integer,as.factor) %>% 
+  mutate_if(is.character,as.POSIXct) %>% 
+  mutate(hora_click = as.factor(hour(click_time)),
+         dia_click = as.factor(weekdays(click_time)),
+         hora_attributed = as.factor(hour(attributed_time)),
+         dia_attributed = as.factor(weekdays(attributed_time))) %>% 
+  select(ip,app,device,os,channel,dia_click,hora_click,dia_attributed,hora_attributed,is_attributed);kable(head(df3));glimpse(df3)
+```
+
+```{r plots 1,2}
+p1 <- ggplot(df3, aes(x=dia_click))+
+  geom_bar(fill = "lightblue")+theme_minimal()+labs(x = "Dia",title="Click por dia")
+p2 <- ggplot(df3, aes(x=dia_attributed))+
+  geom_bar(fill = "lightgreen")+theme_minimal()+labs(x = "Dia",title = "Download por dia")
+grid.arrange(p1,p2,nrow=2)
+
+```
+
+Segunda-feira é o pior dia, tanto quando falamos em downloads quando falamos em clicks.
+
+É possível notar também que existe um padrão quanto ao comportamento de ambas as amostras.
+
+Vamos analisar quais são os números de "os" dos usuários que mais efetuam downloads.
+
+```{r plot os}
+df_os <- df3 %>% group_by(os) %>%  summarize(n = n()) %>%  arrange(desc(n));df_os <- df_os[1:10,]
+df_os_na <- df3 %>% group_by(os) %>%  summarize(n = n()) %>%  arrange(desc(n));df_os <- df_os[1:10,]
+
+p4 <- ggplot(df_os, aes(x = reorder(os,n),y=n))+
+  geom_col(fill = "steelblue")+theme_minimal()+labs(x = "os",title = "Numero de dowloads por tipo de os (top 10)")
+
+grid.arrange(p4,nrow=1)
+```
+
+Os usuário que possuem o os numero 19 e 13 são os que mais efetuam downloads.
+
+Vamos ver também como fica a relação entre a hora do click e a hora em que foram realizados os downloads.
+
+A ideia aqui, é tentar identificar se há algum padrão.
+
+```{r plots p5 e p6}
+p5 <- ggplot(df3, aes(x = hora_click))+
+  geom_histogram(stat = "count",fill = "steelblue")+theme_minimal()+labs(x = "Hora",title = "Click por hora")
+
+p6 <- ggplot(df3, aes(x = hora_attributed))+
+  geom_histogram(stat = "count",fill = "lightgreen")+theme_minimal()+labs(x = "Hora",title = "Download por hora")
+
+grid.arrange(p5,p6,nrow=1)
+```
+
+
+Embora existam algumas diferencas entre o horário de click e de download (especialmente entre a faixa de 0 a 4), pode-se dizer que as amostras possuem o mesmo padrao.
+
+
+#### DADOS DE TREINO E DE TESTE:
+```{r treino e teste}
+glimpse(df)
+df_final <- df %>% select(1:5,7,8,6) %>% 
+  mutate(ip = as.numeric(ip),
+         hora_click = as.numeric(hora_click),
+         device = as.numeric(device),
+         os = as.numeric(os),
+         channel = as.numeric(channel),
+         is_attributed = as.factor(is_attributed),
+         dia_click = as.factor(dia_click),
+         app = as.numeric(app))
+
+sample <- sample.split(df_final$ip, SplitRatio = 0.7)
+treino <- subset(df_final,sample == TRUE)
+teste <- subset(df_final,sample == FALSE)
+
+kable(head(treino));kable(head(teste))
+```
+
+
+
+#### SEPARANDO OS ATRIBUTOS E AS CLASSES:
+
+```{r atrb}
+teste.att <- data.frame(teste[,-8])
+teste.class <- data.frame(teste[,8])
+```
+
+
+#### FEATURE SELECTION:
+
+Vamos utilizar o algoritimo "trainControl" para nos indicar as variáveis mais relevantes para a construção do modelo preditivo.
+
+```{r feature selection}
+formula <- "is_attributed~."
+formula <- as.formula(formula)
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 2 )
+model <- train(formula, data = treino, method = "glm", trControl = control)
+importance <- varImp(model,scale = FALSE)
+plot(importance)
+```
+
+#### CONSTRUINDO O MODELO COM AS VARIÁVEIS SELECIONADAS:
+
+```{r modelo}
+formula.new <- "is_attributed~app+ip+channel+os"
+formula.new <- as.formula(formula.new)
+modelo <- glm(formula=formula.new,data=treino,family = "binomial");summary(modelo)
+```
+
+#### PREVENDO E AVALIANDO O MODELO:
+
+```{r previsoes}
+previsoes <- round(predict(modelo, teste, "response"))
+previsoes_new <- round(as.data.frame(predict(modelo, teste, "response")))
+colnames(previsoes_new) <- "previsoes";previsoes_new$previsoes <- as.factor(previsoes_new$previsoes)
+```
+
+#### CONFUSION MATRIX E AVALIAÇÃO DO RESULTADO:
+
+```{r confusionmatrix}
+confusionMatrix(table(data = previsoes_new$previsoes,reference = teste.class$is_attributed), positive = "1")
+```
+
+Analisando pela confusion matrix, pode-se dizer que nosso modelo teve um bom indice de acurácia (0.7434).
+
+O número de falsos negativos e falsos posivos também foram baixos.
+
+#### AVALIAÇÃO COM A CURVA ROC:
+```{r modelo_final}
+previsoes <- predict(modelo,teste.att,"response")
+avaliacao <- prediction(previsoes, teste.class)
+
+plot.roc.curve <- function(predictions, title.text){
+  perf <- performance(predictions, "tpr", "fpr")
+  plot(perf,col = "black",lty = 1, lwd = 2,
+       main = title.text, cex.main = 0.6, cex.lab = 0.8,xaxs = "i", yaxs = "i")
+  abline(0,1, col = "red")
+  auc <- performance(predictions,"auc")
+  auc <- unlist(slot(auc, "y.values"))
+  auc <- round(auc,2)
+  legend(0.4,0.4,legend = c(paste0("AUC: ",auc)), cex = 0.6, bty = "n", box.col = "white")
+  
+}
+
+par(mfrow = c(1,1))
+plot.roc.curve(avaliacao,title.text = "Curva Roc")
+```
+
+A curva ROC, valida nossa afirmação anterior, apresentando AUC = 0.78. 
+
+O que é muito bom.
+
+
+linkedin/in/sandropenha
+
+github.com/sandropenha
