@@ -1,8 +1,8 @@
 ## DETECÇÃO DE FRAUDES EM CLIQUES DE PROPAGANDAS DE APLICAÇÕES MOBILE 
 
-![TALKINGDATA](https://github.com/sandropenha/deteccao-de-fraudes-em-cliques/blob/master/download.png)
+![TALKINGDATA](https://github.com/sandropenha/detcecao-de-fraudes-em-cliques/blob/master/img/download.png)
 
-**[VER O NOTEBOOK](https://rpubs.com/sandropenha/talkingdata)** |
+**[VER O NOTEBOOK](https://htmlpreview.github.io/?https://raw.githubusercontent.com/sandropenha/detcecao-de-fraudes-em-cliques/master/scripts/deteccao_notebook.html)** |
 **[VER O DATASET](https://www.kaggle.com/c/talkingdata-adtracking-fraud-detection/data)**
 
 
@@ -17,21 +17,21 @@ O objetivo aqui é criar um algoritmo que possa prever se um usuário fará o do
 ## Apresentação de resultado:
 
 ### TOP DOWNLOADS POR OS, IP, APP E DEVICE:
-![IMG1](https://github.com/sandropenha/deteccao-de-fraudes-em-cliques/blob/master/topdownload.png)
+![IMG1](https://github.com/sandropenha/detcecao-de-fraudes-em-cliques/blob/master/img/topdownload.png)
 
 
 
 ### TAXA DE DOWNLOADS E CLICKS:
-![IMG2](https://github.com/sandropenha/deteccao-de-fraudes-em-cliques/blob/master/downloadsdia.png)
+![IMG2](https://github.com/sandropenha/detcecao-de-fraudes-em-cliques/blob/master/img/downloadsdia.png)
 
-![IMG3](https://github.com/sandropenha/deteccao-de-fraudes-em-cliques/blob/master/clicksedownloadshora.png)
+![IMG3](https://github.com/sandropenha/detcecao-de-fraudes-em-cliques/blob/master/img/clicksedownloadshora.png)
 
 ### IMPORTÂNCIA DAS VARIÁVEIS:
 
-![IMG4](https://github.com/sandropenha/deteccao-de-fraudes-em-cliques/blob/master/variaveisimportance.png)
+![IMG4](https://github.com/sandropenha/detcecao-de-fraudes-em-cliques/blob/master/img/variaveisimportance.png)
 
 ### MODELO PREDITIVO DE CLASSIFICAÇÃO:
-![IMG5](https://github.com/sandropenha/deteccao-de-fraudes-em-cliques/blob/master/modelo.png)
+![IMG5](https://github.com/sandropenha/detcecao-de-fraudes-em-cliques/blob/master/img/modelo.png)
 
 
 
